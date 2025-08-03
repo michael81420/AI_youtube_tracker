@@ -1,0 +1,30 @@
+"""
+Constants used throughout the YouTube tracker system.
+"""
+
+# Default values
+DEFAULT_CHECK_INTERVAL = 3600  # 1 hour in seconds
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_RETRY_DELAY = 5  # seconds
+
+# YouTube API limits
+YOUTUBE_MAX_RESULTS_LIMIT = 50  # YouTube API maximum
+YOUTUBE_DAILY_QUOTA = 10000  # Daily quota units
+
+# Rate limiting defaults (per minute)
+DEFAULT_YOUTUBE_REQUESTS_PER_MIN = 50
+DEFAULT_TELEGRAM_MESSAGES_PER_MIN = 20
+DEFAULT_LLM_REQUESTS_PER_MIN = 3
+
+# Database query limits
+DEFAULT_DB_QUERY_LIMIT = 10
+
+# Message formatting
+MAX_TELEGRAM_MESSAGE_LENGTH = 4096
+MAX_SUMMARY_LENGTH = 500
+
+# Timeouts (seconds)
+DEFAULT_HTTP_TIMEOUT = 30.0
+DEFAULT_LLM_TIMEOUT = 30.0
+DEFAULT_YOUTUBE_TIMEOUT = 30.0
+DEFAULT_TELEGRAM_TIMEOUT = 10.0

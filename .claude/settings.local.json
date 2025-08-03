@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(source:*)",
+      "Bash(find:*)",
+      "Bash(mv:*)",
+      "Bash(mkdir:*)",
+      "Bash(tree:*)",
+      "Bash(ruff:*)",
+      "Bash(touch:*)",
+      "Bash(cat:*)",
+      "Bash(ruff check:*)",
+      "Bash(pytest:*)",
+      "Bash(python:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python3 -m pytest:*)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(\".\\venv\\Scripts\\pip.exe\" install:*)",
+      "Bash(\".\\venv\\Scripts\\python.exe\" main.py status)",
+      "Bash(\".\\venv\\Scripts\\python.exe\" main.py --help)",
+      "Bash(\"venv\\Scripts\\python.exe\" main.py status)",
+      "Bash(\"venv\\Scripts\\python.exe\" main.py check-now UCerJk0-d22M7MFy8opOuyjA)",
+      "Bash(\"venv\\Scripts\\python.exe\" tests/test_duplicate_notifications.py)",
+      "Bash(\"venv\\Scripts\\python.exe\" tests/test_automatic_check_deduplication.py)",
+      "Bash(\"venv\\Scripts\\python.exe\" tests/test_notification_fix.py)",
+      "Bash(\"venv\\Scripts\\python.exe\" tests/test_simple_notification_fix.py)",
+      "Bash(\"venv\\Scripts\\python.exe\" tests/test_code_fix_verification.py)",
+      "Bash(\"venv\\Scripts\\python.exe\" tests/test_no_new_videos_behavior.py)",
+      "Bash(\"venv\\Scripts\\python.exe\" tests/test_no_new_videos_simple.py)"
+    ],
+    "deny": []
+  }
+}

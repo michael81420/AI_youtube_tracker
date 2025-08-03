@@ -1,0 +1,12 @@
+{
+  "timestamp": "2025-08-03T19:44:43.814815",
+  "pid": 7144,
+  "is_running": true,
+  "scheduler_running": true,
+  "active_operations": 0,
+  "circuit_breaker_stats": {
+    "open_circuits": 0,
+    "channels_with_failures": 0,
+    "total_failures": 0
+  }
+}

@@ -1,0 +1,6 @@
+Collecting psutil
+  Downloading psutil-7.0.0-cp37-abi3-win_amd64.whl.metadata (23 kB)
+Downloading psutil-7.0.0-cp37-abi3-win_amd64.whl (244 kB)
+   ---------------------------------------- 244.9/244.9 kB 1.9 MB/s eta 0:00:00
+Installing collected packages: psutil
+Successfully installed psutil-7.0.0
