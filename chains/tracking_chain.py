@@ -82,6 +82,17 @@ class TrackingChain:
                 logger.info(f"No new videos found for {safe_log_text(channel_config.channel_name)}")
                 workflow_result["success"] = True
                 workflow_result["no_new_videos"] = True
+                
+                # Still need to update last_check even when no new videos
+                try:
+                    await youtube_tracker_agent._update_channel_state(channel_config, [])
+                    logger.debug(f"Updated last_check for channel {channel_config.channel_id} (no new videos)")
+                except Exception as e:
+                    error_msg = f"Failed to update channel state: {str(e)}"
+                    logger.error(error_msg)
+                    workflow_result["errors"].append(error_msg)
+                    workflow_result["success"] = len(workflow_result["errors"]) == 0
+                
                 return workflow_result
             
             logger.info(f"Found {len(videos)} new videos for {safe_log_text(channel_config.channel_name)}")
@@ -110,6 +121,15 @@ class TrackingChain:
             
             workflow_result["steps_completed"].extend(["process", "summarize", "notify", "update"])
             workflow_result["notifications_sent"] = notifications_sent
+            
+            # Update channel state in database (last_check and last_video_id)
+            try:
+                await youtube_tracker_agent._update_channel_state(channel_config, videos)
+                logger.debug(f"Updated channel state for {channel_config.channel_id}")
+            except Exception as e:
+                error_msg = f"Failed to update channel state: {str(e)}"
+                logger.error(error_msg)
+                workflow_result["errors"].append(error_msg)
             
             # Calculate final results
             workflow_result["videos_processed"] = len([v for v in processed_videos if not v.get("already_processed", False)])

@@ -175,7 +175,7 @@ def format_video_notification(video: VideoMetadata, summary: Optional[str] = Non
         Formatted message string in Markdown
     """
     # Escape special Markdown characters in title
-    title = video.title.replace("[", "\\[").replace("]", "\\]").replace("_", "\\_")
+    title = video.title.replace("\\", "\\\\").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]").replace("_", "\\_").replace("`", "\\`")
     
     # Format duration
     duration_text = ""
@@ -360,12 +360,55 @@ async def send_video_notification(
         
         if include_thumbnail and video.thumbnail_url:
             # Send as photo with caption
-            result = await telegram_client.send_photo(
-                chat_id=chat_id,
-                photo_url=video.thumbnail_url,
-                caption=message_text,
-                parse_mode="Markdown"
-            )
+            # Telegram photo captions are limited to 1024 characters
+            if len(message_text) > 1000:  # Leave some margin for safety
+                # Send photo with short caption, then follow with full message
+                # Use the already escaped title from the main formatting
+                escaped_title = video.title.replace("\\", "\\\\").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]").replace("_", "\\_").replace("`", "\\`")
+                short_caption = f"*{escaped_title[:100]}{'...' if len(escaped_title) > 100 else ''}*\n\n🔗 [Watch Video]({video.url})"
+                
+                try:
+                    result = await telegram_client.send_photo(
+                        chat_id=chat_id,
+                        photo_url=video.thumbnail_url,
+                        caption=short_caption,
+                        parse_mode="Markdown"
+                    )
+                    
+                    # Send full message as follow-up text
+                    await telegram_client.send_message(
+                        chat_id=chat_id,
+                        text=message_text,
+                        parse_mode="Markdown",
+                        disable_web_page_preview=True
+                    )
+                    
+                except Exception as e:
+                    logger.warning(f"Photo with caption failed, falling back to text-only: {e}")
+                    # Fallback to text message
+                    result = await telegram_client.send_message(
+                        chat_id=chat_id,
+                        text=message_text,
+                        parse_mode="Markdown",
+                        disable_web_page_preview=False
+                    )
+            else:
+                try:
+                    result = await telegram_client.send_photo(
+                        chat_id=chat_id,
+                        photo_url=video.thumbnail_url,
+                        caption=message_text,
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.warning(f"Photo with caption failed, falling back to text-only: {e}")
+                    # Fallback to text message
+                    result = await telegram_client.send_message(
+                        chat_id=chat_id,
+                        text=message_text,
+                        parse_mode="Markdown",
+                        disable_web_page_preview=False
+                    )
         else:
             # Send as text message
             result = await telegram_client.send_message(

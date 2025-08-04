@@ -88,3 +88,5 @@ credentials/
 tokens/
 *.key
 *.pem
+data/youtube_tracker.db-shm
+data/youtube_tracker.db-wal
