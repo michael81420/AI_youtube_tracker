@@ -28,7 +28,12 @@
       "Bash(\"venv\\Scripts\\python.exe\" tests/test_simple_notification_fix.py)",
       "Bash(\"venv\\Scripts\\python.exe\" tests/test_code_fix_verification.py)",
       "Bash(\"venv\\Scripts\\python.exe\" tests/test_no_new_videos_behavior.py)",
-      "Bash(\"venv\\Scripts\\python.exe\" tests/test_no_new_videos_simple.py)"
+      "Bash(\"venv\\Scripts\\python.exe\" tests/test_no_new_videos_simple.py)",
+      "Bash(\"venv\\Scripts\\python.exe\" -c \"\nimport os\ntest_files = [\n    ''tests/test_duplicate_notifications.py'',\n    ''tests/test_notification_fix.py'', \n    ''tests/test_simple_notification_fix.py'',\n    ''tests/test_automatic_check_deduplication.py'',\n    ''tests/test_no_new_videos_behavior.py'',\n    ''tests/test_no_new_videos_simple.py''\n]\n\nfor file in test_files:\n    try:\n        with open(file, ''r'', encoding=''utf-8'') as f:\n            content = f.read()\n            lines = len(content.split(''\\n''))\n            if ''duplicate'' in content.lower():\n                duplicate_tests = content.lower().count(''duplicate'')\n            else:\n                duplicate_tests = 0\n            if ''notification'' in content.lower():\n                notification_tests = content.lower().count(''notification'')\n            else:\n                notification_tests = 0\n            \n            print(f''{file}: {lines} lines, {duplicate_tests} duplicate refs, {notification_tests} notification refs'')\n    except Exception as e:\n        print(f''{file}: Error - {e}'')\n\")",
+      "Bash(\"venv\\Scripts\\python.exe\" tests/run_all_tests.py --structure)",
+      "Bash(\"venv\\Scripts\\python.exe\" tests/test_telegram_notifications.py)",
+      "Bash(\"venv\\Scripts\\python.exe\":*)",
+      "Bash(rm:*)"
     ],
     "deny": []
   }

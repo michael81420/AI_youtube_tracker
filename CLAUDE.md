@@ -98,3 +98,4 @@
 - **Always confirm API endpoints and authentication methods** exist before referencing them in code.
 - **Never delete or overwrite existing code** unless explicitly instructed to or if part of a task from `TASK.md`.
 - **Test LangChain integrations thoroughly** as agent behaviors can be unpredictable.
+- **Do not use emoji in code**
