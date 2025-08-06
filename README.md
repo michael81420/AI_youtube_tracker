@@ -11,7 +11,7 @@ A comprehensive LangChain-powered YouTube channel tracking bot that monitors spe
 - **Robust Scheduling**: APScheduler with SQLAlchemy job store for reliability
 - **Multi-Agent Architecture**: LangChain agents with tool composition and orchestration
 - **Circuit Breaker Pattern**: Automatic failure handling for unreliable channels
-- **CLI Interface**: Easy-to-use command line interface for management
+- **Intuitive CLI Interface**: User-friendly command line with auto-fetch and interactive features
 - **Comprehensive Logging**: Detailed logging with configurable levels
 
 ## 🏗️ Architecture
@@ -92,16 +92,46 @@ LOG_FILE=./logs/youtube_tracker.log
 
 ### CLI Commands
 
+#### Basic Operations
+
 ```bash
 # Start the system
 python main.py start
 
-# Add a channel to monitoring
-python main.py add-channel UC123... "Channel Name" -1001234567890
+# Stop the system
+python main.py stop
 
-# Trigger immediate check
+# Show system status
+python main.py status
+```
+
+#### Channel Management
+
+```bash
+# Add a channel to monitoring (only channel ID needed)
+python main.py add-channel UCerJk0-d22M7MFy8opOuyjA
+# System will automatically fetch channel name from YouTube API
+
+# Add channel with custom settings
+python main.py add-channel UC123... --chat-id -1001234567890 --interval 1800
+
+# Remove a channel from monitoring (interactive menu)
+python main.py remove-channel
+# System will show a list of active channels to choose from:
+#   1. Channel Name 1 (UCxxxxx...)
+#   2. Channel Name 2 (UCyyyyy...)
+# Select channel number to remove (or 'q' to quit):
+
+# Trigger immediate check for specific channel
 python main.py check-now UC123...
 
+# Force check (may re-process old videos)
+python main.py check-now UC123... --force
+```
+
+#### System Monitoring
+
+```bash
 # Show system status
 python main.py status
 
@@ -113,7 +143,11 @@ python main.py stats
 
 # Test API connectivity
 python main.py test-apis
+```
 
+#### Data Management
+
+```bash
 # Clear all processed videos (allows re-processing)
 python main.py clear-videos
 
@@ -125,9 +159,32 @@ python main.py clear-videos --confirm
 
 # Clear videos but keep notification records
 python main.py clear-videos --keep-notifications
+```
 
-# Stop the system
-python main.py stop
+### ✨ Improved User Experience
+
+**Simplified Channel Management:**
+- **Auto-Fetch Channel Names**: Only provide the YouTube channel ID, the system automatically fetches the channel name from YouTube API
+- **Interactive Channel Removal**: No need to remember channel IDs - select from a numbered list of active channels
+- **Safety Confirmations**: Confirmation prompts prevent accidental channel removal
+- **Graceful Handling**: Clear messages when no active channels exist
+
+**Example Workflow:**
+```bash
+# Adding a channel is now super simple
+python main.py add-channel UCerJk0-d22M7MFy8opOuyjA
+# ✅ Output: Found channel: 豆哥
+# ✅ Channel '豆哥' added successfully!
+
+# Removing channels is interactive and safe
+python main.py remove-channel
+# ✅ Output: Found 3 active channel(s):
+#           1. 豆哥 (UCerJk0-d22M7MFy8opOuyjA)
+#           2. 科技新聞 (UCCerg0895HYBJauluk-vWwA)
+#           3. 即時新聞 (UCGpj3DO_5_TUDCNUgS9mjiQ)
+#    Select channel number to remove (or 'q' to quit): 2
+#    Are you sure you want to remove this channel? (y/N): y
+# ✅ Channel '科技新聞' removed successfully!
 ```
 
 ## 🔧 Implementation Highlights

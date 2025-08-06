@@ -94,11 +94,10 @@ async def stop_command() -> None:
 
 async def add_channel_command(
     channel_id: str,
-    channel_name: str,
     telegram_chat_id: Optional[str] = None,
     check_interval: int = 3600
 ) -> None:
-    """Add a channel to monitoring."""
+    """Add a channel to monitoring by channel ID only."""
     # Use default chat ID from settings if not provided
     if telegram_chat_id is None:
         from config.settings import get_settings
@@ -106,9 +105,17 @@ async def add_channel_command(
         telegram_chat_id = settings.telegram_chat_id
         print_info(f"Using default Telegram chat ID: {telegram_chat_id}")
     
-    print_info(f"Adding channel {channel_name} ({channel_id})...")
+    print_info(f"Fetching channel information for {channel_id}...")
     
     try:
+        # Get channel information from YouTube API
+        from tools.youtube_tools import YouTubeAPIClient
+        youtube_client = YouTubeAPIClient()
+        channel_info = await youtube_client.get_channel_info(channel_id)
+        
+        channel_name = channel_info["snippet"]["title"]
+        print_info(f"Found channel: {channel_name}")
+        
         result = await orchestrator_agent.add_channel(
             channel_id=channel_id,
             channel_name=channel_name,
@@ -130,15 +137,64 @@ async def add_channel_command(
         print_error(f"Error adding channel: {e}")
 
 
-async def remove_channel_command(channel_id: str) -> None:
-    """Remove a channel from monitoring."""
-    print_info(f"Removing channel {channel_id}...")
+async def remove_channel_command() -> None:
+    """Remove a channel from monitoring with interactive selection."""
+    from storage.database import get_session, Channel, DatabaseUtils
+    
+    print_info("Fetching active channels...")
     
     try:
-        result = await orchestrator_agent.remove_channel(channel_id)
+        # Get active channels from database
+        async for session in get_session():
+            channels = await DatabaseUtils.get_active_channels(session)
+            break
+        
+        if not channels:
+            print_warning("No active channels found in database. Nothing to remove.")
+            return
+        
+        # Display available channels
+        print_info(f"Found {len(channels)} active channel(s):")
+        print("")
+        
+        for i, channel in enumerate(channels, 1):
+            print(f"  {i}. {channel.channel_name} ({channel.channel_id})")
+        
+        print("")
+        
+        # Get user selection
+        while True:
+            try:
+                choice = input("Select channel number to remove (or 'q' to quit): ").strip()
+                
+                if choice.lower() == 'q':
+                    print_info("Operation cancelled.")
+                    return
+                
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(channels):
+                    selected_channel = channels[choice_num - 1]
+                    break
+                else:
+                    print_error(f"Please enter a number between 1 and {len(channels)}")
+            except ValueError:
+                print_error("Please enter a valid number or 'q' to quit")
+        
+        # Confirm removal
+        print(f"\nSelected channel: {selected_channel.channel_name} ({selected_channel.channel_id})")
+        confirm = input("Are you sure you want to remove this channel? (y/N): ").strip().lower()
+        
+        if confirm != 'y':
+            print_info("Operation cancelled.")
+            return
+        
+        # Remove the channel
+        print_info(f"Removing channel {selected_channel.channel_name}...")
+        
+        result = await orchestrator_agent.remove_channel(selected_channel.channel_id)
         
         if result["success"]:
-            print_success(f"Channel {channel_id} removed successfully!")
+            print_success(f"Channel '{selected_channel.channel_name}' removed successfully!")
         else:
             print_error(f"Failed to remove channel: {result.get('error', 'Unknown error')}")
     
@@ -448,7 +504,8 @@ def create_parser() -> argparse.ArgumentParser:
         epilog="""
 Examples:
   python main.py start                              # Start the system
-  python main.py add-channel UC123... "Tech News" -123456  # Add channel
+  python main.py add-channel UC123...              # Add channel (auto-fetch name)
+  python main.py remove-channel                    # Interactive channel removal
   python main.py check-now UC123...                # Manual check (new videos only)
   python main.py check-now UC123... --force       # Force check (may re-send)
   python main.py status                            # Show status
@@ -470,13 +527,11 @@ Examples:
     # Add channel command
     add_parser = subparsers.add_parser("add-channel", help="Add a channel to monitoring")
     add_parser.add_argument("channel_id", help="YouTube channel ID (starts with UC)")
-    add_parser.add_argument("channel_name", help="Human-readable channel name")
     add_parser.add_argument("--chat-id", dest="telegram_chat_id", help="Telegram chat ID for notifications (optional, uses .env default)")
     add_parser.add_argument("--interval", type=int, default=3600, help="Check interval in seconds (default: 3600)")
     
     # Remove channel command
     remove_parser = subparsers.add_parser("remove-channel", help="Remove a channel from monitoring")
-    remove_parser.add_argument("channel_id", help="YouTube channel ID")
     
     # Check now command
     check_parser = subparsers.add_parser("check-now", help="Trigger immediate check for a channel")
@@ -530,13 +585,12 @@ async def main() -> None:
         elif args.command == "add-channel":
             await add_channel_command(
                 channel_id=args.channel_id,
-                channel_name=args.channel_name,
                 telegram_chat_id=args.telegram_chat_id,
                 check_interval=args.interval
             )
         
         elif args.command == "remove-channel":
-            await remove_channel_command(args.channel_id)
+            await remove_channel_command()
         
         elif args.command == "check-now":
             await check_now_command(args.channel_id, force_check=args.force)
