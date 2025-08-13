@@ -189,8 +189,7 @@ class NotificationChain:
             from tools.telegram_tools import send_telegram_message
             return await send_telegram_message(
                 chat_id=notification_data["chat_id"],
-                message_text=notification_data["message_text"],
-                parse_mode=notification_data.get("parse_mode", "Markdown")
+                message_text=notification_data["message_text"]
             )
     
     async def send_summary_notification(
@@ -220,22 +219,21 @@ class NotificationChain:
         error_text = ""
         if errors:
             error_count = len(errors)
-            error_text = f"\n⚠️ {error_count} error{'s' if error_count > 1 else ''} encountered"
+            error_text = f"\n警告: {error_count} error{'s' if error_count > 1 else ''} encountered"
         
-        summary_text = f"""📊 *Processing Summary for {channel_name}*
+        summary_text = f"""*Processing Summary for {channel_name}*
 
-✅ Videos processed: {videos_processed}
-📬 Notifications sent: {notifications_sent}
-🕒 Completed at: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}{error_text}
+Videos processed: {videos_processed}
+Notifications sent: {notifications_sent}
+Completed at: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}{error_text}
 
-_Automated by YouTube Tracker Bot_ 🤖"""
+_Automated by YouTube Tracker Bot_"""
         
         try:
             from tools.telegram_tools import send_telegram_message
             result = await send_telegram_message(
                 chat_id=chat_id,
-                message_text=summary_text,
-                parse_mode="Markdown"
+                message_text=summary_text
             )
             
             result.video_id = "summary"

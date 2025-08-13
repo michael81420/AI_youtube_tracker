@@ -358,24 +358,73 @@ async def test_apis_command() -> None:
     # Test Telegram bot
     try:
         bot_info = await get_bot_info()
-        print_success(f"✅ Telegram Bot: {bot_info['first_name']} (@{bot_info['username']})")
+        print_success(f"[SUCCESS] Telegram Bot: {bot_info['first_name']} (@{bot_info['username']})")
     except Exception as e:
-        print_error(f"❌ Telegram Bot: {e}")
+        print_error(f"[ERROR] Telegram Bot: {e}")
     
     # Test YouTube API (by checking quota)
     try:
         youtube_stats = get_quota_usage()
-        print_success(f"✅ YouTube API: {youtube_stats['quota_remaining']} quota remaining")
+        print_success(f"[SUCCESS] YouTube API: {youtube_stats['quota_remaining']} quota remaining")
     except Exception as e:
-        print_error(f"❌ YouTube API: {e}")
+        print_error(f"[ERROR] YouTube API: {e}")
     
     # Test database
     try:
         from storage.database import init_database
         await init_database()
-        print_success("✅ Database: Connection successful")
+        print_success("[SUCCESS] Database: Connection successful")
     except Exception as e:
-        print_error(f"❌ Database: {e}")
+        print_error(f"[ERROR] Database: {e}")
+
+
+async def process_retries_command() -> None:
+    """Process Telegram retry queue manually."""
+    print_info("Processing Telegram retry queue...")
+    
+    try:
+        from tools.telegram_tools import process_retry_queue
+        
+        result = await process_retry_queue.ainvoke({})
+        
+        if result["success"]:
+            print_info(f"Processing completed: {result['message']}")
+            
+            if result["processed"] > 0:
+                print_info(f"  - Processed: {result['processed']} notifications")
+                print_info(f"  - Succeeded: {result['succeeded']}")
+                print_info(f"  - Failed: {result['failed']}")
+                
+                if result.get("processed_ids"):
+                    print_info(f"  - Video IDs: {', '.join(result['processed_ids'][:5])}{'...' if len(result['processed_ids']) > 5 else ''}")
+            else:
+                print_info("No notifications were ready for retry")
+        else:
+            print_error(f"Failed to process retry queue: {result.get('error', 'Unknown error')}")
+    
+    except Exception as e:
+        print_error(f"Error processing retry queue: {e}")
+
+
+async def cleanup_retry_queue_command() -> None:
+    """Clean up retry queue by removing duplicates and expired items."""
+    print_info("Cleaning up Telegram retry queue...")
+    
+    try:
+        from tools.telegram_tools import RetryQueueManager
+        
+        result = await RetryQueueManager.cleanup_retry_queue()
+        
+        if result["success"]:
+            print_info(f"Cleanup completed: {result['message']}")
+            print_info(f"  - Original count: {result['original_count']}")
+            print_info(f"  - Final count: {result['final_count']}")
+            print_info(f"  - Items cleaned: {result['cleaned']}")
+        else:
+            print_error(f"Failed to clean retry queue: {result.get('error', 'Unknown error')}")
+    
+    except Exception as e:
+        print_error(f"Error cleaning retry queue: {e}")
 
 
 async def clear_videos_command(
@@ -509,6 +558,8 @@ Examples:
   python main.py check-now UC123...                # Manual check (new videos only)
   python main.py check-now UC123... --force       # Force check (may re-send)
   python main.py status                            # Show status
+  python main.py test-apis                         # Test API connectivity
+  python main.py process-retries                   # Process failed Telegram notifications
   python main.py clear-videos                      # Clear all video history
   python main.py clear-videos --channel-id UC123... # Clear specific channel
   python main.py clear-videos --confirm            # Skip confirmation
@@ -549,6 +600,12 @@ Examples:
     
     # Test APIs command
     subparsers.add_parser("test-apis", help="Test API connectivity")
+    
+    # Process retry queue command
+    subparsers.add_parser("process-retries", help="Process Telegram retry queue")
+    
+    # Cleanup retry queue command
+    subparsers.add_parser("cleanup-retries", help="Clean up retry queue (remove duplicates and expired items)")
     
     # Clear videos command
     clear_parser = subparsers.add_parser("clear-videos", help="Clear processed videos from database")
@@ -607,6 +664,12 @@ async def main() -> None:
         elif args.command == "test-apis":
             await test_apis_command()
         
+        elif args.command == "process-retries":
+            await process_retries_command()
+        
+        elif args.command == "cleanup-retries":
+            await cleanup_retry_queue_command()
+        
         elif args.command == "clear-videos":
             await clear_videos_command(
                 channel_id=args.channel_id,
@@ -637,7 +700,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print_info("\nGoodbye! 👋")
+        print_info("\nGoodbye!")
     except Exception as e:
         print_error(f"Fatal error: {e}")
         sys.exit(1)

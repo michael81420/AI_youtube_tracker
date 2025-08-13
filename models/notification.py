@@ -56,7 +56,6 @@ class NotificationMessage(BaseModel):
     
     chat_id: str
     message_text: str
-    parse_mode: str = "Markdown"
     disable_web_page_preview: bool = False
     reply_markup: Optional[dict] = None
     
@@ -68,14 +67,6 @@ class NotificationMessage(BaseModel):
         if len(v) > 4096:  # Telegram limit
             raise ValueError('Message text too long - maximum 4096 characters')
         return v.strip()
-    
-    @validator('parse_mode')
-    def validate_parse_mode(cls, v):
-        """Validate Telegram parse mode."""
-        valid_modes = ['Markdown', 'MarkdownV2', 'HTML']
-        if v not in valid_modes:
-            raise ValueError(f'Parse mode must be one of: {valid_modes}')
-        return v
 
 
 class NotificationTemplate(BaseModel):

@@ -99,3 +99,4 @@
 - **Never delete or overwrite existing code** unless explicitly instructed to or if part of a task from `TASK.md`.
 - **Test LangChain integrations thoroughly** as agent behaviors can be unpredictable.
 - **Do not use emoji in code**
+- Must do all test code after modify any file

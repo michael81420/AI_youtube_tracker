@@ -4,8 +4,10 @@ Telegram Bot API integration tools with rate limiting and rich formatting.
 
 import asyncio
 import logging
+import json
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
+from pathlib import Path
 
 import httpx
 from langchain_core.tools import tool
@@ -16,6 +18,12 @@ from models.notification import NotificationMessage, NotificationStatus
 
 # Setup logging
 logger = logging.getLogger(__name__)
+
+# Retry queue for failed notifications
+RETRY_QUEUE_FILE = Path("data/telegram_retry_queue.json")
+# Default retry delay is now configurable via environment variable
+# RETRY_DELAY_MINUTES is now loaded from settings
+MAX_RETRY_ATTEMPTS = 3
 
 # Custom exceptions
 class TelegramError(Exception):
@@ -33,6 +41,204 @@ class TelegramAuthError(TelegramError):
 class TelegramChatNotFoundError(TelegramError):
     """Telegram chat not found."""
     pass
+
+
+class RetryQueueManager:
+    """Manages the retry queue for failed Telegram notifications."""
+    
+    @staticmethod
+    async def add_to_retry_queue(
+        video: VideoMetadata,
+        summary: Optional[str],
+        chat_id: str,
+        include_thumbnail: bool,
+        retry_count: int = 0,
+        error_message: str = ""
+    ):
+        """Add a failed notification to the retry queue with duplicate prevention."""
+        
+        # Don't add if retry count exceeds maximum
+        if retry_count >= MAX_RETRY_ATTEMPTS:
+            logger.warning(f"Not adding video {video.video_id} to retry queue - exceeds max attempts ({MAX_RETRY_ATTEMPTS})")
+            return
+        
+        retry_item = {
+            "video": {
+                "video_id": video.video_id,
+                "channel_id": video.channel_id,
+                "title": video.title,
+                "description": video.description,
+                "published_at": video.published_at.isoformat(),
+                "thumbnail_url": video.thumbnail_url,
+                "duration": video.duration,
+                "view_count": video.view_count,
+                "like_count": video.like_count,
+                "comment_count": video.comment_count,
+                "url": video.url
+            },
+            "summary": summary,
+            "chat_id": chat_id,
+            "include_thumbnail": include_thumbnail,
+            "retry_count": retry_count,
+            "error_message": error_message,
+            "retry_after": (datetime.utcnow() + timedelta(minutes=get_settings().telegram_retry_delay_minutes)).isoformat(),
+            "added_at": datetime.utcnow().isoformat()
+        }
+        
+        # Ensure data directory exists
+        RETRY_QUEUE_FILE.parent.mkdir(exist_ok=True)
+        
+        # Load existing queue
+        queue = []
+        if RETRY_QUEUE_FILE.exists():
+            try:
+                with open(RETRY_QUEUE_FILE, 'r', encoding='utf-8') as f:
+                    queue = json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                logger.error(f"Failed to load retry queue: {e}")
+                queue = []
+        
+        # Check for existing duplicate entries for this video_id + chat_id combination
+        existing_count = sum(1 for item in queue 
+                           if item.get("video", {}).get("video_id") == video.video_id 
+                           and item.get("chat_id") == chat_id)
+        
+        if existing_count > 0:
+            logger.warning(f"Video {video.video_id} already has {existing_count} entries in retry queue for chat {chat_id} - not adding duplicate")
+            return
+        
+        # Add new item
+        queue.append(retry_item)
+        
+        # Save queue
+        try:
+            with open(RETRY_QUEUE_FILE, 'w', encoding='utf-8') as f:
+                json.dump(queue, f, indent=2, ensure_ascii=False)
+            logger.info(f"Added video {video.video_id} to retry queue (attempt {retry_count + 1})")
+        except IOError as e:
+            logger.error(f"Failed to save retry queue: {e}")
+    
+    @staticmethod
+    async def get_ready_retries() -> List[Dict]:
+        """Get retry items that are ready to be processed."""
+        if not RETRY_QUEUE_FILE.exists():
+            return []
+        
+        try:
+            with open(RETRY_QUEUE_FILE, 'r', encoding='utf-8') as f:
+                queue = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return []
+        
+        now = datetime.utcnow()
+        ready_items = []
+        
+        for item in queue:
+            retry_after = datetime.fromisoformat(item["retry_after"])
+            if now >= retry_after:
+                ready_items.append(item)
+        
+        return ready_items
+    
+    @staticmethod
+    async def remove_from_queue(video_id: str):
+        """Remove an item from the retry queue."""
+        if not RETRY_QUEUE_FILE.exists():
+            return
+        
+        try:
+            with open(RETRY_QUEUE_FILE, 'r', encoding='utf-8') as f:
+                queue = json.load(f)
+            
+            # Filter out the item
+            queue = [item for item in queue if item["video"]["video_id"] != video_id]
+            
+            with open(RETRY_QUEUE_FILE, 'w', encoding='utf-8') as f:
+                json.dump(queue, f, indent=2, ensure_ascii=False)
+                
+        except (json.JSONDecodeError, IOError) as e:
+            logger.error(f"Failed to update retry queue: {e}")
+    
+    @staticmethod
+    async def update_retry_count(video_id: str, new_retry_count: int):
+        """Update retry count for a specific video in the queue."""
+        if not RETRY_QUEUE_FILE.exists():
+            return
+        
+        try:
+            with open(RETRY_QUEUE_FILE, 'r', encoding='utf-8') as f:
+                queue = json.load(f)
+            
+            # Update retry count for matching items
+            updated = False
+            for item in queue:
+                if item["video"]["video_id"] == video_id:
+                    item["retry_count"] = new_retry_count
+                    # Update retry_after time for next attempt
+                    item["retry_after"] = (datetime.utcnow() + timedelta(minutes=get_settings().telegram_retry_delay_minutes)).isoformat()
+                    updated = True
+            
+            if updated:
+                with open(RETRY_QUEUE_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(queue, f, indent=2, ensure_ascii=False)
+                    
+        except (json.JSONDecodeError, IOError) as e:
+            logger.error(f"Failed to update retry count in queue: {e}")
+    
+    @staticmethod
+    async def cleanup_retry_queue():
+        """Clean up retry queue by removing duplicates and expired items."""
+        if not RETRY_QUEUE_FILE.exists():
+            return {"cleaned": 0, "message": "No retry queue file found"}
+        
+        try:
+            with open(RETRY_QUEUE_FILE, 'r', encoding='utf-8') as f:
+                queue = json.load(f)
+            
+            original_count = len(queue)
+            
+            # Remove items that exceed max retry attempts
+            queue = [item for item in queue if item.get("retry_count", 0) < MAX_RETRY_ATTEMPTS]
+            
+            # Remove duplicates - keep only the latest entry for each video_id + chat_id combination
+            seen = {}
+            cleaned_queue = []
+            
+            # Sort by added_at to keep the latest entries
+            queue.sort(key=lambda x: x.get("added_at", ""))
+            
+            for item in queue:
+                video_id = item.get("video", {}).get("video_id")
+                chat_id = item.get("chat_id")
+                key = f"{video_id}_{chat_id}"
+                
+                if key not in seen:
+                    seen[key] = True
+                    cleaned_queue.append(item)
+            
+            # Save cleaned queue
+            with open(RETRY_QUEUE_FILE, 'w', encoding='utf-8') as f:
+                json.dump(cleaned_queue, f, indent=2, ensure_ascii=False)
+            
+            cleaned_count = original_count - len(cleaned_queue)
+            logger.info(f"Cleaned retry queue: removed {cleaned_count} items ({original_count} -> {len(cleaned_queue)})")
+            
+            return {
+                "success": True,
+                "cleaned": cleaned_count,
+                "original_count": original_count,
+                "final_count": len(cleaned_queue),
+                "message": f"Cleaned {cleaned_count} duplicate/expired items from retry queue"
+            }
+            
+        except (json.JSONDecodeError, IOError) as e:
+            logger.error(f"Failed to clean retry queue: {e}")
+            return {
+                "success": False,
+                "cleaned": 0,
+                "error": str(e),
+                "message": "Failed to clean retry queue"
+            }
 
 
 class TelegramAPIClient:
@@ -112,7 +318,6 @@ class TelegramAPIClient:
         self,
         chat_id: str,
         text: str,
-        parse_mode: str = "Markdown",
         disable_web_page_preview: bool = False,
         reply_markup: Optional[Dict] = None
     ) -> Dict[str, Any]:
@@ -121,7 +326,6 @@ class TelegramAPIClient:
         data = {
             "chat_id": chat_id,
             "text": text,
-            "parse_mode": parse_mode,
             "disable_web_page_preview": disable_web_page_preview
         }
         
@@ -134,15 +338,13 @@ class TelegramAPIClient:
         self,
         chat_id: str,
         photo_url: str,
-        caption: Optional[str] = None,
-        parse_mode: str = "Markdown"
+        caption: Optional[str] = None
     ) -> Dict[str, Any]:
         """Send a photo with optional caption."""
         
         data = {
             "chat_id": chat_id,
-            "photo": photo_url,
-            "parse_mode": parse_mode
+            "photo": photo_url
         }
         
         if caption:
@@ -206,14 +408,14 @@ def format_video_notification(video: VideoMetadata, summary: Optional[str] = Non
     # Add summary if available
     if summary:
         message_parts.extend([
-            "📝 *Summary:*",
+            "*Summary:*",
             summary,
             ""
         ])
     
     # Add video link
     message_parts.extend([
-        f"🔗 [Watch Video]({video.url})",
+        f"[Watch Video]({video.url})",
         ""
     ])
     
@@ -243,7 +445,7 @@ def format_status_message(
     if last_check:
         last_check_text = last_check.strftime('%Y-%m-%d %H:%M UTC')
     
-    return f"""📊 *Channel Status Update*
+    return f"""*Channel Status Update*
 
 *Channel:* {channel_name}
 *Videos Processed:* {videos_processed}
@@ -278,7 +480,6 @@ Please check the system logs for more information."""
 async def send_telegram_message(
     chat_id: str,
     message_text: str,
-    parse_mode: str = "Markdown",
     disable_web_page_preview: bool = False
 ) -> NotificationStatus:
     """
@@ -287,7 +488,6 @@ async def send_telegram_message(
     Args:
         chat_id: Telegram chat ID
         message_text: Message text to send
-        parse_mode: Message parse mode (Markdown, HTML, or None)
         disable_web_page_preview: Whether to disable web page preview
         
     Returns:
@@ -305,7 +505,6 @@ async def send_telegram_message(
         result = await telegram_client.send_message(
             chat_id=chat_id,
             text=message_text,
-            parse_mode=parse_mode,
             disable_web_page_preview=disable_web_page_preview
         )
         
@@ -365,21 +564,19 @@ async def send_video_notification(
                 # Send photo with short caption, then follow with full message
                 # Use the already escaped title from the main formatting
                 escaped_title = video.title.replace("\\", "\\\\").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]").replace("_", "\\_").replace("`", "\\`")
-                short_caption = f"*{escaped_title[:100]}{'...' if len(escaped_title) > 100 else ''}*\n\n🔗 [Watch Video]({video.url})"
+                short_caption = f"*{escaped_title[:100]}{'...' if len(escaped_title) > 100 else ''}*\n\n[Watch Video]({video.url})"
                 
                 try:
                     result = await telegram_client.send_photo(
                         chat_id=chat_id,
                         photo_url=video.thumbnail_url,
                         caption=short_caption,
-                        parse_mode="Markdown"
-                    )
+                                            )
                     
                     # Send full message as follow-up text
                     await telegram_client.send_message(
                         chat_id=chat_id,
                         text=message_text,
-                        parse_mode="Markdown",
                         disable_web_page_preview=True
                     )
                     
@@ -389,7 +586,6 @@ async def send_video_notification(
                     result = await telegram_client.send_message(
                         chat_id=chat_id,
                         text=message_text,
-                        parse_mode="Markdown",
                         disable_web_page_preview=False
                     )
             else:
@@ -397,8 +593,7 @@ async def send_video_notification(
                     result = await telegram_client.send_photo(
                         chat_id=chat_id,
                         photo_url=video.thumbnail_url,
-                        caption=message_text,
-                        parse_mode="Markdown"
+                        caption=message_text
                     )
                 except Exception as e:
                     logger.warning(f"Photo with caption failed, falling back to text-only: {e}")
@@ -406,7 +601,6 @@ async def send_video_notification(
                     result = await telegram_client.send_message(
                         chat_id=chat_id,
                         text=message_text,
-                        parse_mode="Markdown",
                         disable_web_page_preview=False
                     )
         else:
@@ -414,7 +608,6 @@ async def send_video_notification(
             result = await telegram_client.send_message(
                 chat_id=chat_id,
                 text=message_text,
-                parse_mode="Markdown",
                 disable_web_page_preview=False
             )
         
@@ -432,14 +625,197 @@ async def send_video_notification(
     except Exception as e:
         logger.error(f"Failed to send video notification for {video.video_id}: {e}")
         
+        # Check if this is a retry attempt or already being processed by retry queue
+        retry_count = getattr(video, '_retry_count', 0)
+        is_retry_processing = getattr(video, '_is_retry_processing', False)
+        
+        # Only add to retry queue if not already being processed by retry queue and under max attempts
+        if not is_retry_processing and retry_count < MAX_RETRY_ATTEMPTS:
+            await RetryQueueManager.add_to_retry_queue(
+                video=video,
+                summary=summary,
+                chat_id=chat_id,
+                include_thumbnail=include_thumbnail,
+                retry_count=retry_count,
+                error_message=str(e)
+            )
+            logger.info(f"Video {video.video_id} added to retry queue (attempt {retry_count + 1}/{MAX_RETRY_ATTEMPTS})")
+        elif is_retry_processing:
+            logger.debug(f"Video {video.video_id} failed during retry processing - will not re-add to queue")
+        else:
+            logger.warning(f"Video {video.video_id} exceeded max retry attempts ({MAX_RETRY_ATTEMPTS}), giving up")
+        
         notification = NotificationStatus(
             video_id=video.video_id,
             chat_id=chat_id,
             success=False,
-            error_message=str(e)
+            error_message=str(e),
+            retry_count=retry_count
         )
         
         return notification
+
+
+@tool
+async def process_retry_queue() -> Dict[str, Any]:
+    """
+    Process pending retry notifications.
+    
+    Returns:
+        Dict with processing results
+    """
+    try:
+        ready_items = await RetryQueueManager.get_ready_retries()
+        
+        if not ready_items:
+            return {
+                "success": True,
+                "processed": 0,
+                "succeeded": 0,
+                "failed": 0,
+                "message": "No items ready for retry"
+            }
+        
+        logger.info(f"Processing {len(ready_items)} retry notifications")
+        
+        succeeded = 0
+        failed = 0
+        processed_ids = []
+        
+        for item in ready_items:
+            try:
+                # Check if this item has exceeded max retry attempts
+                current_retry_count = item["retry_count"] + 1
+                if current_retry_count > MAX_RETRY_ATTEMPTS:
+                    # Remove from queue - exceeded max attempts
+                    await RetryQueueManager.remove_from_queue(item["video"]["video_id"])
+                    logger.warning(f"Video {item['video']['video_id']} exceeded max retry attempts ({MAX_RETRY_ATTEMPTS}), removing from queue")
+                    failed += 1
+                    processed_ids.append(item["video"]["video_id"])
+                    continue
+                
+                # Reconstruct VideoMetadata from stored data
+                video_data = item["video"]
+                video = VideoMetadata(
+                    video_id=video_data["video_id"],
+                    channel_id=video_data.get("channel_id", "UCRETRY_PLACEHOLDER_0000"),  # Use stored channel_id or 24-char placeholder
+                    title=video_data["title"],
+                    description=video_data["description"],
+                    published_at=datetime.fromisoformat(video_data["published_at"]),
+                    thumbnail_url=video_data["thumbnail_url"],
+                    duration=video_data["duration"],
+                    view_count=video_data["view_count"],
+                    like_count=video_data["like_count"],
+                    comment_count=video_data["comment_count"],
+                    url=video_data["url"]
+                )
+                
+                # Mark as retry processing to prevent re-adding to queue
+                setattr(video, '_retry_count', current_retry_count)
+                setattr(video, '_is_retry_processing', True)
+                
+                # Use direct Telegram client call instead of send_video_notification
+                # to avoid re-adding to retry queue
+                try:
+                    message_text = format_video_notification(video, item["summary"])
+                    
+                    if item["include_thumbnail"] and video.thumbnail_url:
+                        # Try sending with thumbnail
+                        if len(message_text) > 1000:
+                            # Send photo with short caption, then follow with full message
+                            escaped_title = video.title.replace("\\", "\\\\").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]")\
+                                                    .replace("_", "\\_").replace("`", "\\`")
+                            short_caption = f"*{escaped_title[:100]}{'...' if len(escaped_title) > 100 else ''}*\n\n[Watch Video]({video.url})"
+                            
+                            try:
+                                await telegram_client.send_photo(
+                                    chat_id=item["chat_id"],
+                                    photo_url=video.thumbnail_url,
+                                    caption=short_caption
+                                )
+                                await telegram_client.send_message(
+                                    chat_id=item["chat_id"],
+                                    text=message_text,
+                                    disable_web_page_preview=True
+                                )
+                            except Exception:
+                                # Fallback to text message
+                                await telegram_client.send_message(
+                                    chat_id=item["chat_id"],
+                                    text=message_text,
+                                    disable_web_page_preview=False
+                                )
+                        else:
+                            try:
+                                await telegram_client.send_photo(
+                                    chat_id=item["chat_id"],
+                                    photo_url=video.thumbnail_url,
+                                    caption=message_text
+                                )
+                            except Exception:
+                                # Fallback to text message
+                                await telegram_client.send_message(
+                                    chat_id=item["chat_id"],
+                                    text=message_text,
+                                    disable_web_page_preview=False
+                                )
+                    else:
+                        # Send as text message
+                        await telegram_client.send_message(
+                            chat_id=item["chat_id"],
+                            text=message_text,
+                            disable_web_page_preview=False
+                        )
+                    
+                    # Success - remove from queue
+                    await RetryQueueManager.remove_from_queue(video.video_id)
+                    succeeded += 1
+                    logger.info(f"Retry successful for video {video.video_id}")
+                    
+                except Exception as send_error:
+                    # Failed to send - check if we should retry again or give up
+                    if current_retry_count >= MAX_RETRY_ATTEMPTS:
+                        # Remove from queue - exceeded max attempts
+                        await RetryQueueManager.remove_from_queue(video.video_id)
+                        logger.warning(f"Video {video.video_id} exceeded max retry attempts after failure, removing from queue")
+                    else:
+                        # Update retry count in queue for next attempt
+                        await RetryQueueManager.update_retry_count(video.video_id, current_retry_count)
+                        logger.warning(f"Retry failed for video {video.video_id} (attempt {current_retry_count}/{MAX_RETRY_ATTEMPTS}): {send_error}")
+                    
+                    failed += 1
+                
+                processed_ids.append(video.video_id)
+                
+                # Small delay between retries to avoid rate limiting
+                await asyncio.sleep(1)
+                
+            except Exception as e:
+                logger.error(f"Error processing retry item: {e}")
+                # Remove problematic item from queue
+                if "video" in item and "video_id" in item["video"]:
+                    await RetryQueueManager.remove_from_queue(item["video"]["video_id"])
+                failed += 1
+        
+        return {
+            "success": True,
+            "processed": len(processed_ids),
+            "succeeded": succeeded,
+            "failed": failed,
+            "processed_ids": processed_ids,
+            "message": f"Processed {len(processed_ids)} retry notifications: {succeeded} succeeded, {failed} failed"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing retry queue: {e}")
+        return {
+            "success": False,
+            "processed": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "error": str(e),
+            "message": "Failed to process retry queue"
+        }
 
 
 @tool
@@ -495,7 +871,6 @@ def format_video_message(video: VideoMetadata, summary: Optional[str] = None) ->
     return NotificationMessage(
         chat_id="",  # Will be set by caller
         message_text=message_text,
-        parse_mode="Markdown",
         disable_web_page_preview=False
     )
 

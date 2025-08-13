@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     # Telegram Bot
     telegram_bot_token: str = Field(..., description="Telegram bot token")
     telegram_chat_id: str = Field(..., description="Default Telegram chat ID for notifications")
+    telegram_retry_delay_minutes: int = Field(60, description="Delay between retry attempts for failed Telegram messages (minutes)")
     
     # LLM Provider (at least one required)
     openai_api_key: Optional[str] = Field(None, description="OpenAI API key")

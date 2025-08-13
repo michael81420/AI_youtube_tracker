@@ -137,8 +137,7 @@ class TelegramAgent:
             
             notification_status = await send_telegram_message.ainvoke({
                 "chat_id": chat_id,
-                "message_text": message_text,
-                "parse_mode": "Markdown"
+                "message_text": message_text
             })
             
             notification_status.video_id = "status_update"
@@ -189,8 +188,7 @@ class TelegramAgent:
             
             notification_status = await send_telegram_message.ainvoke({
                 "chat_id": chat_id,
-                "message_text": message_text,
-                "parse_mode": "Markdown"
+                "message_text": message_text
             })
             
             notification_status.video_id = "error_alert"
@@ -257,8 +255,7 @@ class TelegramAgent:
                     # Generic message
                     result = await send_telegram_message.ainvoke({
                         "chat_id": notification_data["chat_id"],
-                        "message_text": notification_data["message_text"],
-                        "parse_mode": notification_data.get("parse_mode", "Markdown")
+                        "message_text": notification_data["message_text"]
                     })
                 
                 results.append(result)

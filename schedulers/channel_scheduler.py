@@ -85,6 +85,9 @@ class ChannelScheduler:
         
         # Load existing channels from database and schedule them
         await self._load_and_schedule_channels()
+        
+        # Schedule retry queue processing
+        await self._schedule_retry_processing()
     
     async def stop(self) -> None:
         """Stop the scheduler."""
@@ -215,6 +218,40 @@ class ChannelScheduler:
                 
         except Exception as e:
             logger.error(f"Failed to load channels from database: {e}")
+    
+    async def _schedule_retry_processing(self) -> None:
+        """Schedule Telegram retry queue processing."""
+        try:
+            # Schedule retry processing every 5 minutes
+            job = self.scheduler.add_job(
+                func=self._process_telegram_retries,
+                trigger='interval',
+                minutes=5,
+                id='telegram_retry_processor',
+                name='Telegram Retry Queue Processor',
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=60
+            )
+            
+            logger.info("Scheduled Telegram retry queue processing (every 5 minutes)")
+            
+        except Exception as e:
+            logger.error(f"Failed to schedule retry processing: {e}")
+    
+    async def _process_telegram_retries(self) -> None:
+        """Process Telegram retry queue."""
+        try:
+            from tools.telegram_tools import process_retry_queue
+            
+            logger.debug("Processing Telegram retry queue")
+            result = await process_retry_queue.ainvoke({})
+            
+            if result["processed"] > 0:
+                logger.info(f"Retry queue processing: {result['message']}")
+            
+        except Exception as e:
+            logger.error(f"Error in retry queue processing: {e}")
     
     def _job_executed_listener(self, event) -> None:
         """Handle job execution events."""

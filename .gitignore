@@ -90,3 +90,5 @@ tokens/
 *.pem
 data/youtube_tracker.db-shm
 data/youtube_tracker.db-wal
+data/telegram_retry_queue.json
+data/youtube_tracker.pid

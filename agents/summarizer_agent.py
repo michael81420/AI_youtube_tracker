@@ -175,25 +175,25 @@ class SummarizerAgent:
             duration_text = f"{minutes}:{seconds:02d}"
         
         # Truncate description if too long
-        description = video.description[:800] if video.description else "No description available"
+        description = video.description[:800] if video.description else "無影片描述"
         if len(video.description or "") > 800:
             description += "..."
         
-        prompt = f"""Summarize this YouTube video in 2-3 sentences focusing on key insights and main value:
+        prompt = f"""請用2-3句話總結這個YouTube影片，重點關注核心見解和主要價值：
 
-Title: {video.title}
-Duration: {duration_text}
-Description: {description}
-Published: {video.published_at.strftime('%Y-%m-%d')}
+標題：{video.title}
+時長：{duration_text}
+描述：{description}
+發佈時間：{video.published_at.strftime('%Y-%m-%d')}
 
-Requirements:
-- Provide a concise summary highlighting main topics and key takeaways
-- Focus on educational or informational value if present
-- Keep response under 500 characters for notifications
-- Write in an engaging, informative style
-- Do not include promotional language
+要求：
+- 提供簡潔摘要，突出主要話題和關鍵要點
+- 如有教育或資訊價值內容，請重點關注
+- 回覆內容控制在500字以內，適合通知使用
+- 使用引人入勝且富有資訊性的寫作風格
+- 不要包含推廣或宣傳性語言
 
-Summary:"""
+請直接提供中文總結："""
         
         return prompt
     
